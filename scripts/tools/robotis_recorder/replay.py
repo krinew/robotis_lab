@@ -1,4 +1,4 @@
-"""Script to run a leisaac replay with leisaac in the simulation."""
+"""Script to run a robotis_lab replay with robotis_lab in the simulation."""
 
 """Launch Isaac Sim Simulator first."""
 import multiprocessing
@@ -9,7 +9,7 @@ import argparse
 from isaaclab.app import AppLauncher
 
 # add argparse arguments
-parser = argparse.ArgumentParser(description="leisaac replay for leisaac in the simulation.")
+parser = argparse.ArgumentParser(description="robotis_lab replay for robotis_lab in the simulation.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--step_hz", type=int, default=60, help="Environment stepping rate in Hz.")
@@ -37,7 +37,7 @@ from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab_tasks.utils import parse_env_cfg
 
 import robotis_lab  # noqa: F401
-from leisaac.utils.env_utils import get_task_type
+from robotis_lab.utils.env_utils import get_task_type
 
 
 class RateLimiter:
@@ -98,7 +98,7 @@ def reset_object_state(env: ManagerBasedRLEnv, init_object_state: dict):
 
 
 def main():
-    """Running lerobot teleoperation with leisaac manipulation environment."""
+    """Running lerobot teleoperation with robotis_lab manipulation environment."""
 
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs)
     task_type = get_task_type(args_cli.task)
