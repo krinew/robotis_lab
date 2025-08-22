@@ -42,7 +42,7 @@ import gymnasium as gym
 
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab_tasks.utils import parse_env_cfg
-from isaaclab.managers import TerminationTermCfg
+from isaaclab.managers import TerminationTermCfg, DatasetExportMode
 
 from dds_sdk.omy_leader import OMYLeader
 
@@ -105,14 +105,19 @@ def main():
     if not hasattr(env_cfg.terminations, "success"):
         setattr(env_cfg.terminations, "success", None)
     env_cfg.terminations.success = TerminationTermCfg(func=lambda env: torch.zeros(1, dtype=torch.bool, device=env.device))
+    # Do not save while stepping; only save explicitly on success (key 'N')
+    env_cfg.recorders.dataset_export_mode = DatasetExportMode.EXPORT_NONE
 
     # create environment
     env: ManagerBasedRLEnv = gym.make(task_name, cfg=env_cfg).unwrapped
 
     del env.recorder_manager
+    # Ensure dataset file handler is created, but keep stepping in no-save mode
+    env_cfg.recorders.dataset_export_mode = DatasetExportMode.EXPORT_ALL
     env.recorder_manager = StreamingRecorderManager(env_cfg.recorders, env)
     env.recorder_manager.flush_steps = 100
     env.recorder_manager.compression = 'lzf'
+    env.recorder_manager.cfg.dataset_export_mode = DatasetExportMode.EXPORT_NONE
 
     # create controller
     if args_cli.teleop_device == "omy_leader":
@@ -162,7 +167,26 @@ def main():
                 should_reset_task_success = False
                 env.termination_manager.set_term_cfg("success", TerminationTermCfg(func=lambda env: torch.ones(env.num_envs, dtype=torch.bool, device=env.device)))
                 env.termination_manager.compute()
+                # Mark current buffered episode(s) as successful and export before resetting
+                try:
+                    for env_id, ep in getattr(env.recorder_manager, "_episodes", {}).items():
+                        if ep is not None and not ep.is_empty():
+                            ep.success = True
+                except Exception:
+                    pass
+                env.recorder_manager.cfg.dataset_export_mode = DatasetExportMode.EXPORT_ALL
+                env.recorder_manager.export_episodes(from_step=False)
+                env.recorder_manager.cfg.dataset_export_mode = DatasetExportMode.EXPORT_NONE
+                # Update and report successful demo count immediately after export
+                if env.recorder_manager.exported_successful_episode_count > current_recorded_demo_count:
+                    current_recorded_demo_count = env.recorder_manager.exported_successful_episode_count
+                    print(f"Recorded {current_recorded_demo_count} successful demonstrations.")
             if should_reset_recording_instance:
+                # Clear any buffered episode so failed episodes (key 'R') aren't saved
+                try:
+                    env.recorder_manager._clear_episode_cache()
+                except Exception:
+                    pass
                 env.reset()
                 should_reset_recording_instance = False
                 if start_record_state:
