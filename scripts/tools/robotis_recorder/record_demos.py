@@ -15,13 +15,11 @@ from isaaclab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="robotis_lab teleoperation for robotis_lab environments.")
-parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--teleop_device", type=str, default="keyboard", choices=['omy_leader'], help="Device for interacting with environment")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=42, help="Seed for the environment.")
 
 # recorder_parameter
-parser.add_argument("--record", action="store_true", default=False, help="whether to enable record function")
 parser.add_argument("--step_hz", type=int, default=60, help="Environment stepping rate in Hz.")
 parser.add_argument("--dataset_file", type=str, default="./datasets/dataset.hdf5", help="File path to export recorded demos.")
 parser.add_argument("--num_demos", type=int, default=0, help="Number of demonstrations to record. Set to 0 for infinite.")
@@ -49,6 +47,9 @@ from isaaclab.managers import TerminationTermCfg
 from dds_sdk.omy_leader import OMYLeader
 
 import robotis_lab
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "recorder_manager"))
+from recorder_manager import StreamingRecorderManager
 
 class RateLimiter:
     """Convenience class for enforcing rates in loops."""
@@ -88,7 +89,7 @@ def main():
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs)
+    env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=1)
     env_cfg.use_teleop_device(args_cli.teleop_device)
     env_cfg.seed = args_cli.seed
     task_name = args_cli.task
@@ -98,17 +99,20 @@ def main():
         env_cfg.terminations.time_out = None
     if hasattr(env_cfg.terminations, "success"):
         env_cfg.terminations.success = None
-    if args_cli.record:
-        env_cfg.recorders.dataset_export_dir_path = output_dir
-        env_cfg.recorders.dataset_filename = output_file_name
-        if not hasattr(env_cfg.terminations, "success"):
-            setattr(env_cfg.terminations, "success", None)
-        env_cfg.terminations.success = TerminationTermCfg(func=lambda env: torch.zeros(env.num_envs, dtype=torch.bool, device=env.device))
-    else:
-        env_cfg.recorders = None
+
+    env_cfg.recorders.dataset_export_dir_path = output_dir
+    env_cfg.recorders.dataset_filename = output_file_name
+    if not hasattr(env_cfg.terminations, "success"):
+        setattr(env_cfg.terminations, "success", None)
+    env_cfg.terminations.success = TerminationTermCfg(func=lambda env: torch.zeros(1, dtype=torch.bool, device=env.device))
 
     # create environment
     env: ManagerBasedRLEnv = gym.make(task_name, cfg=env_cfg).unwrapped
+
+    del env.recorder_manager
+    env.recorder_manager = StreamingRecorderManager(env_cfg.recorders, env)
+    env.recorder_manager.flush_steps = 100
+    env.recorder_manager.compression = 'lzf'
 
     # create controller
     if args_cli.teleop_device == "omy_leader":
@@ -144,6 +148,7 @@ def main():
     teleop_interface.reset()
 
     current_recorded_demo_count = 0
+    current_failed_demo_count = 0
 
     start_record_state = False
 
@@ -155,23 +160,21 @@ def main():
             if should_reset_task_success:
                 print("Task Success!!!")
                 should_reset_task_success = False
-                if args_cli.record:
-                    env.termination_manager.set_term_cfg("success", TerminationTermCfg(func=lambda env: torch.ones(env.num_envs, dtype=torch.bool, device=env.device)))
-                    env.termination_manager.compute()
+                env.termination_manager.set_term_cfg("success", TerminationTermCfg(func=lambda env: torch.ones(env.num_envs, dtype=torch.bool, device=env.device)))
+                env.termination_manager.compute()
             if should_reset_recording_instance:
                 env.reset()
                 should_reset_recording_instance = False
                 if start_record_state:
-                    if args_cli.record:
-                        print("Stop Recording!!!")
-                    start_record_state = False
-                if args_cli.record:
-                    env.termination_manager.set_term_cfg("success", TerminationTermCfg(func=lambda env: torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)))
+                    print("Stop Recording!!!")
+                start_record_state = False
+                env.termination_manager.set_term_cfg("success", TerminationTermCfg(func=lambda env: torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)))
                 # print out the current demo count if it has changed
-                if args_cli.record and env.recorder_manager.exported_successful_episode_count > current_recorded_demo_count:
+                print(f"Resetting recording instance. Current recorded demo count: {current_recorded_demo_count}")
+                if env.recorder_manager.exported_successful_episode_count > current_recorded_demo_count:
                     current_recorded_demo_count = env.recorder_manager.exported_successful_episode_count
                     print(f"Recorded {current_recorded_demo_count} successful demonstrations.")
-                if args_cli.record and args_cli.num_demos > 0 and env.recorder_manager.exported_successful_episode_count >= args_cli.num_demos:
+                if args_cli.num_demos > 0 and env.recorder_manager.exported_successful_episode_count >= args_cli.num_demos:
                     print(f"All {args_cli.num_demos} demonstrations recorded. Exiting the app.")
                     break
 
@@ -180,8 +183,7 @@ def main():
             # apply actions
             else:
                 if not start_record_state:
-                    if args_cli.record:
-                        print("Start Recording!!!")
+                    print("Start Recording!!!")
                     start_record_state = True
                 env.step(actions)
             if rate_limiter:

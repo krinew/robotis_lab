@@ -1,6 +1,7 @@
 import os
 import threading
 import torch
+import numpy as np
 from pynput.keyboard import Listener
 from collections.abc import Callable
 
@@ -123,19 +124,43 @@ class OMYLeader:
         self._additional_callbacks[key] = func
 
     def input2action(self):
+        state = {}
+        reset = state["reset"] = self._reset_state
+        state['started'] = self._started
+        if reset:
+            self._reset_state = False
+            return state
+        state['joint_state'] = self.get_device_state()
+
         ac_dict = {}
-        ac_dict["reset"] = self._reset_state
+        ac_dict["reset"] = reset
         ac_dict['started'] = self._started
         ac_dict['omy_leader'] = True
-        ac_dict['joint_state'] = self.get_device_state()
+        if reset:
+            return ac_dict
+        ac_dict['joint_state'] = state['joint_state']
         return ac_dict
 
     def advance(self):
+        """
+        Returns:
+            Can be:
+                - torch.Tensor: The action to be applied to the robot.
+                - dict: state of the scene and the task, and the task need to reset.
+                - None: the scene is not started
+        """
         action = self.input2action()
         if action is None:
             return self.env.action_manager.action
-
+        if not action['started']:
+            return None
+        if action['reset']:
+            return action
+        for key, value in action.items():
+            if isinstance(value, np.ndarray):
+                action[key] = torch.tensor(value, device=self.env.device, dtype=torch.float32)
         return self.preprocess_device_action(action)
+
 
     def preprocess_device_action(self, action: dict) -> torch.Tensor:
         if action.get('omy_leader'):

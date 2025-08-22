@@ -11,6 +11,7 @@ from isaaclab.app import AppLauncher
 # add argparse arguments
 parser = argparse.ArgumentParser(description="robotis_lab replay for robotis_lab in the simulation.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument("--teleop_device", type=str, default="omy_leader", choices=['omy_leader'], help="Device for interacting with environment")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--step_hz", type=int, default=60, help="Environment stepping rate in Hz.")
 parser.add_argument("--dataset_file", type=str, default="./datasets/dataset.hdf5", help="File path to load recorded demos.")
@@ -37,7 +38,6 @@ from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab_tasks.utils import parse_env_cfg
 
 import robotis_lab  # noqa: F401
-from robotis_lab.utils.env_utils import get_task_type
 
 
 class RateLimiter:
@@ -68,7 +68,7 @@ class RateLimiter:
                 self.last_time += self.sleep_duration
 
 
-def parse_dataset(dataset_file: str, episode_index: int, task_type: str, device: str):
+def parse_dataset(dataset_file: str, episode_index: int, device: str):
     with h5py.File(dataset_file, 'r') as f:
         demo_names = list(f['data'].keys())
         demo_name = demo_names[episode_index]
@@ -76,12 +76,7 @@ def parse_dataset(dataset_file: str, episode_index: int, task_type: str, device:
 
         seed = int(demo_group.attrs.get("seed", -1))
 
-        if task_type == "bi-so101leader":
-            left_joint_pos = torch.tensor(np.array(demo_group['obs/left_joint_pos']), device=device)
-            right_joint_pos = torch.tensor(np.array(demo_group['obs/right_joint_pos']), device=device)
-            states = torch.cat([left_joint_pos, right_joint_pos], dim=1)
-        else:
-            states = torch.tensor(np.array(demo_group['obs/joint_pos']), device=device)
+        states = torch.tensor(np.array(demo_group['obs/joint_pos']), device=device)
 
         init_object_state = {}
         for key in list(demo_group['initial_state/rigid_object'].keys()):
@@ -101,8 +96,7 @@ def main():
     """Running lerobot teleoperation with robotis_lab manipulation environment."""
 
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs)
-    task_type = get_task_type(args_cli.task)
-    env_cfg.use_teleop_device(task_type)
+    env_cfg.use_teleop_device(args_cli.teleop_device)
 
     # modify configuration
     if hasattr(env_cfg.terminations, "time_out"):
@@ -116,7 +110,7 @@ def main():
 
     rate_limiter = RateLimiter(args_cli.step_hz)
 
-    states, init_object_state, seed = parse_dataset(args_cli.dataset_file, args_cli.episode_index, task_type, args_cli.device)
+    states, init_object_state, seed = parse_dataset(args_cli.dataset_file, args_cli.episode_index, args_cli.device)
 
     # reset environment
     env.seed(seed)
