@@ -43,14 +43,6 @@ from robotis_lab.assets.OMY import OMY_CFG  # isort: skip
 class EventCfg:
     """Configuration for events."""
 
-    init_omy_arm_pose = EventTerm(
-        func=omy_stack_events.set_default_joint_pose,
-        mode="startup",
-        params={
-            "default_pose": [0.0, -1.55, 2.66, -1.1, 1.6, 0.0, 0.0, 0.0, 0.0, 0.0],
-        },
-    )
-
     randomize_omy_joint_state = EventTerm(
         func=omy_stack_events.randomize_joint_by_gaussian_offset,
         mode="reset",
@@ -67,7 +59,7 @@ class EventCfg:
         params={
             "pose_range": {"x": (0.3, 0.5), "y": (-0.10, 0.10), "z": (0.0203, 0.0203), "yaw": (0, 0, 0)},
             "min_separation": 0.12,
-            "asset_cfgs": [SceneEntityCfg("cube_1"), SceneEntityCfg("cube_2"), SceneEntityCfg("cube_3")],
+            "asset_cfgs": [SceneEntityCfg("cube")],
         },
     )
 
@@ -102,34 +94,14 @@ class OMYCubeStackEnvCfg(StackEnvCfg):
         )
 
         # Set each stacking cube deterministically
-        self.scene.cube_1 = RigidObjectCfg(
-            prim_path="{ENV_REGEX_NS}/Cube_1",
+        self.scene.cube = RigidObjectCfg(
+            prim_path="{ENV_REGEX_NS}/cube",
             init_state=RigidObjectCfg.InitialStateCfg(pos=[0.2, 0.0, 0.0203], rot=[1, 0, 0, 0]),
             spawn=UsdFileCfg(
                 usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/blue_block.usd",
                 scale=(1.0, 1.0, 1.0),
                 rigid_props=cube_properties,
-                semantic_tags=[("class", "cube_1")],
-            ),
-        )
-        self.scene.cube_2 = RigidObjectCfg(
-            prim_path="{ENV_REGEX_NS}/Cube_2",
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.35, 0.05, 0.0203], rot=[1, 0, 0, 0]),
-            spawn=UsdFileCfg(
-                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/red_block.usd",
-                scale=(1.0, 1.0, 1.0),
-                rigid_props=cube_properties,
-                semantic_tags=[("class", "cube_2")],
-            ),
-        )
-        self.scene.cube_3 = RigidObjectCfg(
-            prim_path="{ENV_REGEX_NS}/Cube_3",
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.40, -0.1, 0.0203], rot=[1, 0, 0, 0]),
-            spawn=UsdFileCfg(
-                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/green_block.usd",
-                scale=(1.0, 1.0, 1.0),
-                rigid_props=cube_properties,
-                semantic_tags=[("class", "cube_3")],
+                semantic_tags=[("class", "cube")],
             ),
         )
 
