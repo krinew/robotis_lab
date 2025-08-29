@@ -20,17 +20,16 @@ from robotis_python_sdk.idl.builtin_interfaces.msg.dds_ import Time_
 class OMYSdk:
     """OMYSdk class for DDS teleoperation + publishing state/image."""
 
-    def __init__(self, env):
+    def __init__(self, env, mode):
         self.env = env
         self.joint_trajectory_cmd = None
         self.running = True
         self.domain_id = int(os.getenv("ROS_DOMAIN_ID", 0))
+        self.mode = mode  # 'record' or 'inference'
 
         # Joint names
-        self.joint_names = [
-            'joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6',
-            'rh_r1_joint', 'rh_l1', 'rh_l2', 'rh_r2'
-        ]
+        self.joint_names = self.env.scene["robot"].data.joint_names
+        self.exclude_joints = []
 
         # Initialize DDS
         ChannelFactoryInitialize(id=self.domain_id)
@@ -40,7 +39,7 @@ class OMYSdk:
         self.sub.Init()
 
         # Publishers (state + camera)
-        self.pub_joint = ChannelPublisher("rt/follower/joint_state", JointState_)
+        self.pub_joint = ChannelPublisher("rt/joint_states", JointState_)
         self.pub_joint.Init()
 
         self.pub_top_cam = ChannelPublisher("rt/camera/cam_top/color/image_rect_raw/compressed", CompressedImage_)
@@ -64,7 +63,9 @@ class OMYSdk:
         self._display_controls()
 
     def _display_controls(self):
-        print("\n[R] Reset simulation\n")
+        print("\n[R] Reset simulation (observations continue)")
+        print("[B] Start/Resume robot control")
+        print("Note: Images and joint states are always published\n")
 
     def on_press(self, key):  # not used
         pass
@@ -76,17 +77,26 @@ class OMYSdk:
             key (str): key that was pressed
         """
         try:
-            if key.char == 'b':
-                self._started = True
-                self._reset_state = False
-            elif key.char == 'r':
-                self._started = False
-                self._reset_state = True
-                self._additional_callbacks["R"]()
-            elif key.char == 'n':
-                self._started = False
-                self._reset_state = True
-                self._additional_callbacks["N"]()
+            if self.mode =='record':
+                if key.char == 'b':
+                    self._started = True
+                    self._reset_state = False
+                elif key.char == 'r':
+                    self._started = False
+                    self._reset_state = True
+                    self._additional_callbacks["R"]()
+                elif key.char == 'n':
+                    self._started = False
+                    self._reset_state = True
+                    self._additional_callbacks["N"]()
+            elif self.mode == 'inference':
+                if key.char == 'b':
+                    self._started = True
+                    self._reset_state = False
+                elif key.char == 'r':
+                    self._started = False
+                    self._reset_state = True
+                    self._additional_callbacks["R"]()
         except AttributeError:
             pass
 
@@ -126,8 +136,8 @@ class OMYSdk:
         )
 
         # Convert to 1D list
-        positions = self.env.scene["robot"].data.joint_pos.tolist()
-        velocities = self.env.scene["robot"].data.joint_vel.tolist()
+        positions = self.env.scene["robot"].data.joint_pos.squeeze(0).tolist()
+        velocities = self.env.scene["robot"].data.joint_vel.squeeze(0).tolist()
         efforts = [0.0] * len(positions)
 
         # Prevent flattening 2D lists
@@ -136,12 +146,20 @@ class OMYSdk:
         if isinstance(velocities[0], list):
             velocities = [v for sub in velocities for v in sub]
 
+        filtered_names, filtered_positions, filtered_velocities, filtered_efforts = [], [], [], []
+        for name, pos, vel, eff in zip(self.joint_names, positions, velocities, efforts):
+            if name not in self.exclude_joints:
+                filtered_names.append(name)
+                filtered_positions.append(pos)
+                filtered_velocities.append(vel)
+                filtered_efforts.append(eff)
+
         joint_state = JointState_(
             header=header,
-            name=self.joint_names,
-            position=positions,
-            velocity=velocities,
-            effort=efforts
+            name=filtered_names,
+            position=filtered_positions,
+            velocity=filtered_velocities,
+            effort=filtered_efforts
         )
 
         try:
@@ -194,6 +212,10 @@ class OMYSdk:
     def reset(self):
         self._reset_state = False
 
+    def is_started(self):
+        """Check if the robot control is started (B key pressed)."""
+        return self._started
+
     def add_callback(self, key: str, func: Callable):
         self._additional_callbacks[key] = func
 
@@ -213,16 +235,19 @@ class OMYSdk:
         return {name: pos for name, pos in zip(self.joint_names, self.joint_trajectory_cmd)}
 
     def get_action(self):
-        """Return action tensor and publish state/image."""
+        """Return action tensor for robot control (separate from observation publishing)."""
         action = self.input2action()
         if action is None:
             return self.env.action_manager.action
         if action['reset']:
             return {"reset": True}
         if not action['started']:
-            if action['reset']:
-                return {"reset": True}
-            return None
+            # When not started, return the current robot position to maintain pose
+            current_positions = self.env.scene["robot"].data.joint_pos.squeeze(0)
+            # Ensure the tensor has the correct batch dimension
+            if current_positions.dim() == 1:
+                current_positions = current_positions.unsqueeze(0)
+            return current_positions
 
         joint_state = action['joint_state']
         positions = [joint_state.get(name, 0.0) for name in self.joint_names]

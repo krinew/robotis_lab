@@ -39,17 +39,29 @@ import robotis_lab
 class RateLimiter:
     """Simple class for enforcing a loop frequency."""
 
-    def __init__(self, hz: int):
+    def __init__(self, hz):
+        """
+        Args:
+            hz (int): frequency to enforce
+        """
+        self.hz = hz
+        self.last_time = time.time()
         self.sleep_duration = 1.0 / hz
-        self.last_time = time.time()
+        self.render_period = min(0.0166, self.sleep_duration)
 
-    def sleep(self):
-        now = time.time()
-        sleep_time = self.last_time + self.sleep_duration - now
-        if sleep_time > 0:
-            time.sleep(sleep_time)
-        self.last_time = time.time()
+    def sleep(self, env):
+        """Attempt to sleep at the specified rate in hz."""
+        next_wakeup_time = self.last_time + self.sleep_duration
+        while time.time() < next_wakeup_time:
+            time.sleep(self.render_period)
+            env.sim.render()
 
+        self.last_time = self.last_time + self.sleep_duration
+
+        # detect time jumping forwards (e.g. loop is too slow)
+        if self.last_time < time.time():
+            while self.last_time < time.time():
+                self.last_time += self.sleep_duration
 
 def main():
     # env config
@@ -62,7 +74,7 @@ def main():
     # teleop interface
     if args_cli.robot_type == "OMY":
         from dds_sdk.omy_sdk import OMYSdk
-        teleop_interface = OMYSdk(env)
+        teleop_interface = OMYSdk(env, mode='inference')
     else:
         raise ValueError(f"Unsupported robot type: {args_cli.robot_type}")
 
@@ -81,8 +93,9 @@ def main():
 
     while simulation_app.is_running():
         with torch.inference_mode():
-            actions = teleop_interface.get_action()
+            # Always publish observations (images and joint states)
             teleop_interface.publish_observations()
+            actions = teleop_interface.get_action()
 
             if should_reset_task:
                 print("[INFO] Reset requested.")
@@ -94,7 +107,8 @@ def main():
                 env.render()
             else:
                 env.step(actions)
-            rate_limiter.sleep()
+            if rate_limiter:
+                rate_limiter.sleep(env)
 
     env.close()
     simulation_app.close()

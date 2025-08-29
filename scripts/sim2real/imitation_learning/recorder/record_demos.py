@@ -121,7 +121,7 @@ def main():
     # create controller
     if args_cli.robot_type == "OMY":
         from dds_sdk.omy_sdk import OMYSdk
-        teleop_interface = OMYSdk(env)
+        teleop_interface = OMYSdk(env, mode='record')
     else:
         raise ValueError(
             f"Invalid device interface '{args_cli.robot_type}'. Supported: 'OMY'."
