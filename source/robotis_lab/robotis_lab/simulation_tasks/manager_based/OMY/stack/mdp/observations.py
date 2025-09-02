@@ -27,10 +27,46 @@ from typing import TYPE_CHECKING
 from isaaclab.assets import Articulation, RigidObject, RigidObjectCollection
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import FrameTransformer
+from isaaclab.envs import ManagerBasedEnv
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+def joint_pos_rel_name(env: ManagerBasedEnv, joint_names: list[str], asset_name: str = "robot") -> torch.Tensor:
+    """
+    Returns the relative joint positions for the specified joint names.
+
+    Args:
+        env: ManagerBasedEnv instance.
+        joint_names: List of joint names to extract.
+        asset_name: Name of the asset (default: "robot").
+
+    Returns:
+        torch.Tensor of shape [1, len(joint_names)]
+    """
+    asset: Articulation = env.scene[asset_name]
+
+    joint_ids = [asset.joint_names.index(name) for name in joint_names]
+
+    return asset.data.joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
+
+def joint_vel_rel_name(env: ManagerBasedEnv, joint_names: list[str], asset_name: str = "robot") -> torch.Tensor:
+    """
+    Returns the relative joint velocities for the specified joint names.
+
+    Args:
+        env: ManagerBasedEnv instance.
+        joint_names: List of joint names to extract.
+        asset_name: Name of the asset (default: "robot").
+
+    Returns:
+        torch.Tensor of shape [1, len(joint_names)]
+    """
+    asset: Articulation = env.scene[asset_name]
+
+    joint_ids = [asset.joint_names.index(name) for name in joint_names]
+
+    return asset.data.joint_vel[:, joint_ids] - asset.data.default_joint_vel[:, joint_ids]
 
 def cube_positions_in_world_frame(
     env: ManagerBasedRLEnv,

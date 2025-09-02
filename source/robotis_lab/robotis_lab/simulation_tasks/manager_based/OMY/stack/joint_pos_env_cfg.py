@@ -94,13 +94,13 @@ class OMYCubeStackEnvCfg(StackEnvCfg):
 
         # Set actions for the specific robot type (OMY)
         self.actions.arm_action = mdp.JointPositionActionCfg(
-            asset_name="robot", joint_names=["joint.*"], scale=0.5, use_default_offset=True
+            asset_name="robot", joint_names=["joint.*"], scale=1.0, use_default_offset=True
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
             joint_names=["rh_r1_joint"],
             open_command_expr={"rh_r1_joint": 0.0},
-            close_command_expr={"rh_r1_joint": 0.8},
+            close_command_expr={"rh_r1_joint": 0.7},
         )
 
         # Rigid body properties of each cube
@@ -162,14 +162,14 @@ class OMYCubeStackEnvCfg(StackEnvCfg):
                     ),
                 ),
                 FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/OMY/rh_p12_rn_r2",
+                    prim_path="{ENV_REGEX_NS}/Robot/OMY/gripper/rh_p12_rn_r2",
                     name="tool_rightfinger",
                     offset=OffsetCfg(
                         pos=(0.0, 0.0, 0.0),
                     ),
                 ),
                 FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/OMY/rh_p12_rn_l2",
+                    prim_path="{ENV_REGEX_NS}/Robot/OMY/gripper/rh_p12_rn_l2",
                     name="tool_leftfinger",
                     offset=OffsetCfg(
                         pos=(0.0, 0.0, 0.0),

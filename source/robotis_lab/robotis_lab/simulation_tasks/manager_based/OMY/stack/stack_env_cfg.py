@@ -92,8 +92,16 @@ class ObservationsCfg:
         """Observations for policy group with state values."""
 
         actions = ObsTerm(func=mdp.last_action)
-        joint_pos = ObsTerm(func=mdp.joint_pos_rel)
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel)
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_rel_name,
+            params={"joint_names": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "rh_r1_joint"],
+                    "asset_name": "robot"},
+        )
+        joint_vel = ObsTerm(
+            func=mdp.joint_vel_rel_name,
+            params={"joint_names": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "rh_r1_joint"],
+                    "asset_name": "robot"},
+        )
         object = ObsTerm(func=mdp.object_obs)
         cube_positions = ObsTerm(func=mdp.cube_positions_in_world_frame)
         cube_orientations = ObsTerm(func=mdp.cube_orientations_in_world_frame)

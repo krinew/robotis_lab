@@ -48,24 +48,24 @@ OMY_CFG = ArticulationCfg(
     actuators={
         "DY_80": ImplicitActuatorCfg(
             joint_names_expr=["joint[1-2]"],
-            velocity_limit_sim=3.0,
+            velocity_limit_sim=6.0,
             effort_limit_sim=100.0,
-            stiffness=200.0,
-            damping=30.0,
+            stiffness=400.0,
+            damping=50.0,
         ),
         "DY_70": ImplicitActuatorCfg(
             joint_names_expr=["joint[3-6]"],
             velocity_limit_sim=6.0,
-            effort_limit_sim=50.0,
-            stiffness=150.0,
-            damping=20.0,
+            effort_limit_sim=80.0,
+            stiffness=300.0,
+            damping=40.0,
         ),
-        "hand": ImplicitActuatorCfg(
+        "gripper": ImplicitActuatorCfg(
             joint_names_expr=["rh_r1_joint"],
             velocity_limit_sim=6.0,
             effort_limit_sim=30.0,
-            stiffness=50.0,
-            damping=20.0,
+            stiffness=20.0,
+            damping=10.0,
         ),
     },
 )
