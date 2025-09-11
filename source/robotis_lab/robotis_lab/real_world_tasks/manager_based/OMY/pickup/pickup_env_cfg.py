@@ -116,14 +116,6 @@ class ObservationsCfg:
             self.concatenate_terms = False
 
     @configclass
-    class RGBCameraPolicyCfg(ObsGroup):
-        """Observations for policy group with RGB images."""
-
-        def __post_init__(self):
-            self.enable_corruption = False
-            self.concatenate_terms = False
-
-    @configclass
     class SubtaskCfg(ObsGroup):
         """Observations for subtask group."""
 
@@ -142,7 +134,6 @@ class ObservationsCfg:
 
     # observation groups
     policy: PolicyCfg = PolicyCfg()
-    rgb_camera: RGBCameraPolicyCfg = RGBCameraPolicyCfg()
     subtask_terms: SubtaskCfg = SubtaskCfg()
 
 

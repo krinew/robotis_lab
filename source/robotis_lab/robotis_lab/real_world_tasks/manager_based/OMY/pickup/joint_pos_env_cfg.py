@@ -141,8 +141,8 @@ class OMYBottlePickupEnvCfg(PickupEnvCfg):
         self.scene.cam_wrist = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/OMY/link6/cam_wrist",
             update_period=0.0,
-            height=224,
-            width=224,
+            height=424,
+            width=240,
             data_types=["rgb"],
             spawn=sim_utils.PinholeCameraCfg(
                 focal_length=11.8, focus_distance=200.0, horizontal_aperture=20.955, clipping_range=(0.01, 100.0)
@@ -156,8 +156,8 @@ class OMYBottlePickupEnvCfg(PickupEnvCfg):
         self.scene.cam_top = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Table/robotis_omy_table/camera_link/cam_top",
             update_period=0.0,
-            height=224,
-            width=224,
+            height=424,
+            width=240,
             data_types=["rgb"],
             spawn=sim_utils.PinholeCameraCfg(
                 focal_length=10.0, focus_distance=200.0, horizontal_aperture=20.955, clipping_range=(0.01, 100.0)

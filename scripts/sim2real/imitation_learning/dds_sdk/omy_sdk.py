@@ -2,99 +2,98 @@ import os
 import threading
 import torch
 import cv2
-import numpy as np
 from pynput.keyboard import Listener
 from collections.abc import Callable
 from datetime import datetime
 
-from robotis_python_sdk.idl.trajectory_msgs.msg import JointTrajectory_
-from robotis_python_sdk.idl.sensor_msgs.msg import JointState_
-from robotis_python_sdk.idl.sensor_msgs.msg import CompressedImage_
-from robotis_python_sdk.idl.std_msgs.msg import Header_
-from robotis_python_sdk.idl.builtin_interfaces.msg import Time_
+from robotis_dds_python.idl.trajectory_msgs.msg import JointTrajectory_
+from robotis_dds_python.idl.sensor_msgs.msg import JointState_
+from robotis_dds_python.idl.sensor_msgs.msg import CompressedImage_
+from robotis_dds_python.idl.std_msgs.msg import Header_
+from robotis_dds_python.idl.builtin_interfaces.msg import Time_
 
-from robotis_python_sdk.tools.topic_manager import TopicManager
+from robotis_dds_python.tools.topic_manager import TopicManager
+
 
 class OMYSdk:
-    """OMYSdk class for DDS teleoperation + publishing state/image."""
+    """OMYSdk class for DDS teleoperation and publishing robot state/images."""
 
-    def __init__(self, env, mode):
+    def __init__(self, env, mode: str):
         self.env = env
-        self.joint_trajectory_cmd = None
+        self.mode = mode  # 'record' or 'inference'
         self.running = True
         self.domain_id = int(os.getenv("ROS_DOMAIN_ID", 0))
-        self.mode = mode  # 'record' or 'inference'
+        self.joint_trajectory_cmd = None
+        self._started = False
+        self._reset_state = False
+        self._additional_callbacks = {}
+        self.lock = threading.Lock()  # Protect shared state
 
-        topic_manager = TopicManager(domain_id=self.domain_id)
-
-        # Joint names
+        # Define joint names
         self.joint_names = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "rh_r1_joint"]
         self.exclude_joints = []
 
-        # Subscriber (leader input)
+        # DDS Topic Manager
+        topic_manager = TopicManager(domain_id=self.domain_id)
+
+        # Subscribers
         self.joint_trajectory_reader = topic_manager.topic_reader(
             topic_name="leader/joint_trajectory",
             topic_type=JointTrajectory_
         )
 
-
-        # Publishers (state + camera)
+        # Publishers
         self.joint_state_writer = topic_manager.topic_writer(
             topic_name="joint_states",
             topic_type=JointState_
         )
-
         self.top_cam_writer = topic_manager.topic_writer(
             topic_name="camera/cam_top/color/image_rect_raw/compressed",
             topic_type=CompressedImage_
         )
-
         self.wrist_cam_writer = topic_manager.topic_writer(
             topic_name="camera/cam_wrist/color/image_rect_raw/compressed",
             topic_type=CompressedImage_
         )
 
-        # Subscriber thread
+        # Start subscriber thread
         self.thread = threading.Thread(target=self._subscriber_loop, daemon=True)
         self.thread.start()
 
-        # Flags / callbacks
-        self._started = False
-        self._reset_state = False
-        self._additional_callbacks = {}
-
         # Keyboard listener
-        self.listener = Listener(on_press=self.on_press, on_release=self.on_release)
+        self.listener = Listener(on_press=self._on_press)
         self.listener.start()
-        self._display_controls()
 
-    def _display_controls(self):
-        print("\n[R] Reset simulation (observations continue)")
-        print("[B] Start/Resume robot control")
-        print("Note: Images and joint states are always published\n")
+        self._keyboard_controls()
 
-    def on_press(self, key):  # not used
-        pass
+    # ----------------------
+    # Keyboard controls
+    # ----------------------
+    def _keyboard_controls(self):
+        print("\n[Control] Press keys to control the robot:")
+        if self.mode == 'record':
+            print("[N] New demonstration (reset simulation and start new demo)")
+            print("[R] Reset simulation (observations continue)")
+            print("[B] Start robot control")
+        elif self.mode == 'inference':
+            print("[R] Reset simulation (observations continue)")
+            print("[B] Start/Resume robot control")
+            print("Note: Images and joint states are always published\n")
 
-    def on_release(self, key):
-        """
-        Key handler for key releases.
-        Args:
-            key (str): key that was pressed
-        """
+    def _on_press(self, key):
         try:
-            if self.mode =='record':
+            if self.mode == 'record':
                 if key.char == 'b':
                     self._started = True
                     self._reset_state = False
                 elif key.char == 'r':
                     self._started = False
                     self._reset_state = True
-                    self._additional_callbacks["R"]()
+                    self._call_callback("R")
                 elif key.char == 'n':
                     self._started = False
                     self._reset_state = True
-                    self._additional_callbacks["N"]()
+                    self._call_callback("N")
             elif self.mode == 'inference':
                 if key.char == 'b':
                     self._started = True
@@ -102,148 +101,113 @@ class OMYSdk:
                 elif key.char == 'r':
                     self._started = False
                     self._reset_state = True
-                    self._additional_callbacks["R"]()
+                    self._call_callback("R")
         except AttributeError:
             pass
 
+    def _call_callback(self, key):
+        if key in self._additional_callbacks:
+            self._additional_callbacks[key]()
+
+    # ----------------------
+    # Subscriber loop
+    # ----------------------
     def _subscriber_loop(self):
+        """Continuously read joint trajectory commands from the leader."""
         try:
             while self.running:
                 for msg in self.joint_trajectory_reader.take_iter():
-                    if msg is not None and msg.points:
-                        msg_joint_names = msg.joint_names
-                        msg_positions = msg.points[-1].positions
-                        joint_dict = dict(zip(msg_joint_names, msg_positions))
-                    self.joint_trajectory_cmd = [
-                        joint_dict.get(name, 0.0) for name in self.joint_names
-                    ]
+                    if msg and msg.points:
+                        joint_dict = dict(zip(msg.joint_names, msg.points[-1].positions))
+                        with self.lock:
+                            self.joint_trajectory_cmd = [
+                                joint_dict.get(name, 0.0) for name in self.joint_names
+                            ]
         except Exception as e:
             print("Subscriber thread exception:", e)
         finally:
-            self.sub.Close()
+            try:
+                self.joint_trajectory_reader.Close()
+            except:
+                pass
             print("Subscriber closed")
 
-    def publish_joint_state(self):
-        # Generate timestamp
+    # ----------------------
+    # Publishers
+    # ----------------------
+    def _publish_joint_states(self):
+        """Publish current joint states over DDS."""
         now = datetime.now()
-        stamp = Time_(
-            sec=int(now.timestamp()),
-            nanosec=now.microsecond * 1000
-        )
-        header = Header_(
-            stamp=stamp,
-            frame_id="base_link"
-        )
+        stamp = Time_(sec=int(now.timestamp()), nanosec=now.microsecond * 1000)
+        header = Header_(stamp=stamp, frame_id="base_link")
 
-        # Convert to 1D list
         positions = self.env.scene["robot"].data.joint_pos.squeeze(0).tolist()
         velocities = self.env.scene["robot"].data.joint_vel.squeeze(0).tolist()
         efforts = [0.0] * len(positions)
 
-        # Prevent flattening 2D lists
+        # Flatten nested lists if necessary
         if isinstance(positions[0], list):
             positions = [p for sub in positions for p in sub]
         if isinstance(velocities[0], list):
             velocities = [v for sub in velocities for v in sub]
 
-        filtered_names, filtered_positions, filtered_velocities, filtered_efforts = [], [], [], []
-        for name, pos, vel, eff in zip(self.joint_names, positions, velocities, efforts):
-            if name not in self.exclude_joints:
-                filtered_names.append(name)
-                filtered_positions.append(pos)
-                filtered_velocities.append(vel)
-                filtered_efforts.append(eff)
-
         joint_state = JointState_(
-            header=header,
-            name=filtered_names,
-            position=filtered_positions,
-            velocity=filtered_velocities,
-            effort=filtered_efforts
-        )
+            header=header, name=list(self.joint_names),
+            position=list(positions),
+            velocity=list(velocities),
+            effort=list(efforts))
 
         try:
             self.joint_state_writer.write(joint_state)
         except Exception as e:
-            print("[Writer] write sample error. msg:", e.args)
+            print("[Writer] write error:", e)
 
-    def publish_camera(self, cam_name: str):
+    def _publish_camera(self, cam_name: str):
+        """Publish camera image as DDS compressed image."""
         try:
             cam_data = self.env.scene[cam_name].data
-            img_tensor = cam_data.output['rgb']            # get tensor
-            img = img_tensor[0].cpu().numpy()             # convert to (H, W, 3) numpy array
+            img = cam_data.output['rgb'][0].cpu().numpy()  # Convert tensor to numpy
 
             _, buffer = cv2.imencode('.jpg', img)
             jpeg_bytes = buffer.tobytes()
 
             now = datetime.now()
-            stamp = Time_(
-                sec=int(now.timestamp()),
-                nanosec=now.microsecond * 1000
-            )
-            header = Header_(
-                stamp=stamp,
-                frame_id="camera_frame"
-            )
+            stamp = Time_(sec=int(now.timestamp()), nanosec=now.microsecond * 1000)
+            header = Header_(stamp=stamp, frame_id="camera_frame")
 
-            msg = CompressedImage_(
-                header=header,
-                format="jpeg",
-                data=jpeg_bytes
-            )
+            msg = CompressedImage_(header=header, format="jpeg", data=jpeg_bytes)
             if cam_name == "cam_wrist":
                 self.wrist_cam_writer.write(msg)
             elif cam_name == "cam_top":
                 self.top_cam_writer.write(msg)
-
         except Exception as e:
             print("Camera publish error:", e)
 
-    def shutdown(self):
-        self.running = False
-        self.thread.join()
-        # DDS cleanup
-        self.sub.Close()
-        self.joint_state_writer.Close()
-        self.top_cam_writer.Close()
-        self.wrist_cam_writer.Close()
-        print("OMYSdk shutdown complete")
-
-    def reset(self):
-        self._reset_state = False
-
-    def is_started(self):
-        """Check if the robot control is started (B key pressed)."""
-        return self._started
-
-    def add_callback(self, key: str, func: Callable):
-        self._additional_callbacks[key] = func
-
-    def input2action(self):
-        state = {}
-        reset = state["reset"] = self._reset_state
-        state['started'] = self._started
-        if reset:
+    # ----------------------
+    # Action/state handling
+    # ----------------------
+    def _compute_action_state(self):
+        """Compute current action dictionary based on keyboard input and subscriber."""
+        state = {'reset': self._reset_state, 'started': self._started}
+        if state['reset']:
             self._reset_state = False
             return state
-        state['joint_state'] = self.get_device_state()
+        state['joint_state'] = self._get_device_state()
         return state
 
-    def get_device_state(self):
-        if self.joint_trajectory_cmd is None:
-            return {name: 0.0 for name in self.joint_names}
-        return {name: pos for name, pos in zip(self.joint_names, self.joint_trajectory_cmd)}
+    def _get_device_state(self):
+        """Return latest joint positions."""
+        with self.lock:
+            if self.joint_trajectory_cmd is None:
+                return {name: 0.0 for name in self.joint_names}
+            return dict(zip(self.joint_names, self.joint_trajectory_cmd))
 
     def get_action(self):
-        """Return action tensor for robot control (separate from observation publishing)."""
-        action = self.input2action()
-        if action is None:
-            return self.env.action_manager.action
+        """Return action tensor for robot control."""
+        action = self._compute_action_state()
         if action['reset']:
             return {"reset": True}
         if not action['started']:
-            if action['reset']:
-                return {"reset": True}
             return None
 
         joint_state = action['joint_state']
@@ -251,6 +215,29 @@ class OMYSdk:
         return torch.tensor(positions, device=self.env.device, dtype=torch.float32).unsqueeze(0)
 
     def publish_observations(self):
-        self.publish_joint_state()
-        self.publish_camera("cam_top")
-        self.publish_camera("cam_wrist")
+        """Publish joint states and camera images."""
+        self._publish_joint_states()
+        self._publish_camera("cam_top")
+        self._publish_camera("cam_wrist")
+
+    # ----------------------
+    # Utility
+    # ----------------------
+    def shutdown(self):
+        """Stop threads and close DDS publishers/subscribers."""
+        self.running = False
+        self.thread.join()
+        for obj in [self.joint_trajectory_reader, self.joint_state_writer,
+                    self.top_cam_writer, self.wrist_cam_writer]:
+            try:
+                obj.Close()
+            except:
+                pass
+        print("OMYSdk shutdown complete")
+
+    def reset(self):
+        self._reset_state = False
+
+    def add_callback(self, key: str, func: Callable):
+        """Add callback function for a specific key."""
+        self._additional_callbacks[key] = func

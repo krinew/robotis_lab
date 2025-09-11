@@ -1,6 +1,13 @@
+# Copyright (c) 2024-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
 import enum
 import copy
 import h5py
+import torch
+import numpy as np
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -37,16 +44,35 @@ class StreamingHDF5DatasetFileHandler(HDF5DatasetFileHandler):
 
         def _do_write_episode(self, h5_episode_group: h5py.Group, episode: EpisodeData):
             def create_dataset_helper(group, key, value):
-                """Helper method to create dataset that contains recursive dict objects."""
+                """Helper method to recursively create datasets in HDF5 from nested dict/list/tensors."""
                 if isinstance(value, dict):
+                    # Recurse into sub-groups
                     if key not in group:
                         key_group = group.create_group(key)
                     else:
                         key_group = group[key]
                     for sub_key, sub_value in value.items():
                         create_dataset_helper(key_group, sub_key, sub_value)
-                else:
-                    data = value.cpu().numpy()
+
+                elif isinstance(value, list):
+                    # Convert list of tensors/numbers into a single array
+                    tensor_list = []
+                    for v in value:
+                        if torch.is_tensor(v):
+                            v = v.cpu()
+                            # Ensure batch dimension for images or 3D data
+                            if v.dim() == 3:  # e.g. [H, W, C]
+                                v = v.unsqueeze(0)  # -> [1, H, W, C]
+                            tensor_list.append(v)
+                        elif isinstance(v, (float, int, np.floating, np.integer)):
+                            # Wrap scalars into 2D tensors so they can be concatenated
+                            tensor_list.append(torch.tensor([[v]], dtype=torch.float32))
+                        else:
+                            raise ValueError(f"Unsupported type in list for HDF5 export: {type(v)}")
+
+                    # Concatenate along batch dimension
+                    data = torch.cat(tensor_list, dim=0).numpy()  # shape: [N, ...]
+
                     if key not in group:
                         dataset = group.create_dataset(
                             key,
@@ -56,11 +82,32 @@ class StreamingHDF5DatasetFileHandler(HDF5DatasetFileHandler):
                             dtype=data.dtype,
                             compression=self.file_handler.compression,
                         )
-                        dataset[0: data.shape[0]] = data
+                        dataset[0:data.shape[0]] = data
                     else:
                         dataset = group[key]
                         dataset.resize(dataset.shape[0] + data.shape[0], axis=0)
-                        dataset[dataset.shape[0] - data.shape[0]:] = data
+                        dataset[-data.shape[0]:] = data
+
+                else:
+                    # Single tensor case (not inside a list)
+                    data = value.cpu().numpy()
+                    if data.ndim == 3:  # e.g. [H, W, C]
+                        data = np.expand_dims(data, axis=0)  # -> [1, H, W, C]
+
+                    if key not in group:
+                        dataset = group.create_dataset(
+                            key,
+                            shape=data.shape,
+                            maxshape=(None, *data.shape[1:]),
+                            chunks=(self.file_handler.chunks_length, *data.shape[1:]),
+                            dtype=data.dtype,
+                            compression=self.file_handler.compression,
+                        )
+                        dataset[0:data.shape[0]] = data
+                    else:
+                        dataset = group[key]
+                        dataset.resize(dataset.shape[0] + data.shape[0], axis=0)
+                        dataset[-data.shape[0]:] = data
 
             for key, value in episode.data.items():
                 create_dataset_helper(h5_episode_group, key, value)

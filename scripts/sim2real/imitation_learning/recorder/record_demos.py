@@ -159,6 +159,7 @@ def main():
     while simulation_app.is_running():
         # run everything in inference mode
         with torch.inference_mode():
+            teleop_interface.publish_observations()
             actions = teleop_interface.get_action()
             if should_reset_task_success:
                 print("Task Success!!!")
