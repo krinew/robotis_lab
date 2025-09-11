@@ -12,8 +12,8 @@ from datetime import datetime
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 CAMERA_CONFIG = {
-    "cam_wrist": {"height": 424, "width": 240},
-    "cam_top": {"height": 424, "width": 240},
+    "cam_wrist": {"height": 240, "width": 424},
+    "cam_top": {"height": 240, "width": 424},
 }
 
 def get_env_features(fps: int, camera_config=CAMERA_CONFIG):
@@ -55,7 +55,7 @@ def get_env_features(fps: int, camera_config=CAMERA_CONFIG):
 
     return features
 
-def process_data(dataset: LeRobotDataset, task: str, demo_group: h5py.Group, demo_name: str) -> bool:
+def process_data(dataset: LeRobotDataset, task: str, demo_group: h5py.Group, demo_name: str, frame_skip: int) -> bool:
     """
     Process a single demonstration group from the HDF5 dataset
     and add it into the LeRobot dataset.
@@ -70,6 +70,10 @@ def process_data(dataset: LeRobotDataset, task: str, demo_group: h5py.Group, dem
         print(f"Demo {demo_name} is not valid, skipping...")
         return False
 
+    if actions.shape[0] < 10:
+        print(f"Demo {demo_name} has insufficient frames ({actions.shape[0]}), skipping...")
+        return False
+
     # Ensure actions and joint positions are 2D arrays
     if actions.ndim == 1:
         actions = actions.reshape(-1, 7)
@@ -80,6 +84,8 @@ def process_data(dataset: LeRobotDataset, task: str, demo_group: h5py.Group, dem
 
     # Process each frame
     for frame_index in tqdm(range(total_state_frames), desc=f"Processing demo {demo_name}"):
+        if frame_index < frame_skip:
+            continue
         frame = {
             "action": actions[frame_index],
             "observation.state": joint_pos[frame_index],
@@ -93,7 +99,7 @@ def process_data(dataset: LeRobotDataset, task: str, demo_group: h5py.Group, dem
 
 def convert_isaaclab_to_lerobot(
     task: str, repo_id: str, robot_type: str, dataset_file: str,
-    fps: int, push_to_hub: bool = False
+    fps: int, push_to_hub: bool = False, frame_skip: int = 3
 ):
     """
     Convert an IsaacLab HDF5 dataset into LeRobot dataset format.
@@ -124,7 +130,7 @@ def convert_isaaclab_to_lerobot(
                     print(f"Demo {demo_name} not successful, skipping...")
                     continue
 
-                valid = process_data(dataset, task, demo_group, demo_name)
+                valid = process_data(dataset, task, demo_group, demo_name, frame_skip)
 
                 if valid:
                     now_episode_index += 1
@@ -143,6 +149,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_file", type=str, default="./datasets/dataset.hdf5", help="Path to dataset HDF5 file")
     parser.add_argument("--fps", type=int, default=30, help="Frames per second for dataset (default: 30)")
     parser.add_argument("--push_to_hub", action="store_true", help="Whether to push dataset to HuggingFace Hub")
+    parser.add_argument("--frame_skip", type=int, default=3, help="Frame skip rate (default: 3)")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     default_repo_id = f"data/{timestamp}"
@@ -156,5 +163,6 @@ if __name__ == "__main__":
         robot_type=args.robot_type,
         dataset_file=args.dataset_file,
         fps=args.fps,
-        push_to_hub=args.push_to_hub
+        push_to_hub=args.push_to_hub,
+        frame_skip=args.frame_skip
     )
