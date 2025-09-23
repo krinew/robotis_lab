@@ -241,3 +241,11 @@ python scripts/sim2real/imitation_learning/data_converter/OMY/isaaclab2lerobot.p
 ```
 
 </details>
+
+## License
+
+This repository is licensed under the **Apache 2.0 License**. See [LICENSE](LICENSE) for details.
+
+### Third-party components
+
+- **Isaac Lab**: BSD-3-Clause License, see [LICENSE-IsaacLab](LICENSE-IsaacLab)
