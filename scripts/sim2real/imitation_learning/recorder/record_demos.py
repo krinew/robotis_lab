@@ -188,8 +188,10 @@ def main():
                     for env_id, ep in getattr(env.recorder_manager, "_episodes", {}).items():
                         if ep is not None and not ep.is_empty():
                             ep.success = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Warning: Failed to mark episodes as successful: {e}")
+                    print(f"Exception details: {type(e).__name__}: {str(e)}")
+
                 env.recorder_manager.cfg.dataset_export_mode = DatasetExportMode.EXPORT_ALL
                 env.recorder_manager.export_episodes(from_step=False)
                 env.recorder_manager.cfg.dataset_export_mode = DatasetExportMode.EXPORT_NONE
@@ -201,8 +203,10 @@ def main():
                 # Clear any buffered episode so failed episodes (key 'R') aren't saved
                 try:
                     env.recorder_manager._clear_episode_cache()
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Warning: Failed to clear episode cache: {e}")
+                    print(f"Exception details: {type(e).__name__}: {str(e)}")
+
                 env.reset()
                 should_reset_recording_instance = False
                 if start_record_state:
@@ -223,7 +227,7 @@ def main():
             # apply actions
             else:
                 if isinstance(actions, dict):
-                    pass
+                    print(f"Debug: Received actions as dict with keys: {list(actions.keys())}")
                 if actions.ndim == 1:
                     actions = actions.unsqueeze(0)
                 if not start_record_state:
