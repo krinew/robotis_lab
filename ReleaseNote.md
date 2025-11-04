@@ -14,7 +14,7 @@
     * Data Augmentation: Added augmentation techniques to increase dataset diversity and enhance policy generalization.
     * Dataset Conversion: Integrated data conversion to the LeRobot dataset format, enabling compatibility with LeRobot’s training framework.
 * ROS 2 Integration:
-    * Modified to receive the leader’s /joint_trajectory values using the robotis_dds_python library without any ROS2 dependency.
+    * Modified to receive the leader’s /joint_trajectory values using the robotis_dds_python library without any ROS 2 dependency.
 
 0.1.2 (2025-07-29)
 ------------------
